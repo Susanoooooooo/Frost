@@ -9,7 +9,7 @@ import { discordActivity } from '../lib/discord';
 import { logEntry } from '../lib/diagnostics';
 import { flushJournal, recordListen } from '../lib/journal';
 import { DISCORD_APP_ID } from '../lib/links';
-import { scrobbleThreshold } from '../lib/scrobble';
+import { listenedDelta, scrobbleThreshold } from '../lib/scrobble';
 import { flushScrobbles, sendNowPlaying, sendScrobble } from '../lib/scrobbler';
 import type { Track } from '../lib/types';
 import { trackKey } from '../lib/types';
@@ -30,6 +30,7 @@ export function useListening() {
     let nowSent = false;
     let scrobbled = false;
     let lastTick = performance.now();
+    let lastPos = engine.currentTime;
 
     const finish = () => {
       if (track && listened >= MIN_JOURNAL_SECONDS && listened !== saved) {
@@ -40,8 +41,11 @@ export function useListening() {
 
     const tick = () => {
       const now = performance.now();
-      const dt = Math.min(2.5, Math.max(0, (now - lastTick) / 1000));
+      const wall = (now - lastTick) / 1000;
       lastTick = now;
+      const pos = engine.currentTime;
+      const moved = pos - lastPos;
+      lastPos = pos;
       const p = usePlayer.getState();
       if (p.playId !== playId || (p.current && track && trackKey(p.current) !== trackKey(track))) {
         finish();
@@ -54,7 +58,7 @@ export function useListening() {
         scrobbled = false;
       }
       if (!track || !p.isPlaying || p.isLoading || engine.paused) return;
-      listened += dt;
+      listened += listenedDelta(moved, wall);
       if (!nowSent && listened >= 3) {
         nowSent = true;
         void sendNowPlaying(track);
