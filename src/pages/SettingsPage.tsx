@@ -257,6 +257,12 @@ function SourcesGroup() {
         label="Автопродолжение"
         description="Когда очередь закончится, включать похожие треки"
       />
+      <Switch
+        checked={s.resumePlayback}
+        onChange={(v) => s.update({ resumePlayback: v })}
+        label="Продолжать с места остановки"
+        description="После перезапуска Frost последний трек продолжится с той же секунды"
+      />
     </Group>
   );
 }

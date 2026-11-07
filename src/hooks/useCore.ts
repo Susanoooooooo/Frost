@@ -7,6 +7,7 @@ import { toast, useUi } from '../store/ui';
 import { useAppearance } from './useAppearance';
 import { useUpdateCheck } from './useBackground';
 import { useListening } from './useIntegrations';
+import { useResumePoint } from './useResume';
 import { useSleepTimer } from './useSleepTimer';
 
 /** Устройство вывода (только Windows) и выравнивание громкости из настроек. */
@@ -30,6 +31,7 @@ export function useCore() {
   useUpdateCheck();
   useAudioOutput();
   useListening();
+  useResumePoint();
 
   useEffect(() => {
     void useSettings.getState().loadConfig();

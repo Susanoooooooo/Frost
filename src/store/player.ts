@@ -7,6 +7,7 @@ import { IS_ANDROID } from '../lib/platform';
 import { PlayFailures } from '../lib/playError';
 import { providerMeta } from '../lib/providers';
 import { shuffled, shuffledAvoiding } from '../lib/format';
+import { readResume, resumeStart } from '../lib/resume';
 import type { RepeatMode, ResolvedStream, SourceProvider, Track } from '../lib/types';
 import { trackKey } from '../lib/types';
 import { useLibrary } from './library';
@@ -418,7 +419,11 @@ export const usePlayer = create<PlayerState>()(
         const s = get();
         if (!s.current || s.isLoading) return;
         if (!s.loaded) {
-          void loadTrack(s.current, true);
+          // Первый запуск после старта Frost: продолжаем с того места, где остановились
+          const startAt = useSettings.getState().resumePlayback
+            ? resumeStart(readResume(), trackKey(s.current), s.current.duration)
+            : 0;
+          void loadTrack(s.current, true, { startAt });
           return;
         }
         void engine.play();

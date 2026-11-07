@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { shuffledAvoiding } from '../src/lib/format';
+import { parseResume, resumeStart } from '../src/lib/resume';
 import { listenedDelta } from '../src/lib/scrobble';
 
 describe('перемешивание нового круга', () => {
@@ -37,5 +38,26 @@ describe('учёт прослушанного времени', () => {
     expect(listenedDelta(-200, 1)).toBe(1);
     expect(listenedDelta(0, 60)).toBe(2.5);
     expect(listenedDelta(Number.NaN, -5)).toBe(0);
+  });
+});
+
+describe('продолжение с места остановки', () => {
+  test('разбор сохранённой точки', () => {
+    expect(parseResume(null)).toBeNull();
+    expect(parseResume('мусор')).toBeNull();
+    expect(parseResume('{"key":"","at":5}')).toBeNull();
+    expect(parseResume('{"key":"yt:1","at":"5"}')).toBeNull();
+    expect(parseResume('{"key":"yt:1","at":-3}')).toEqual({ key: 'yt:1', at: 0 });
+    expect(parseResume('{"key":"yt:1","at":83.4}')).toEqual({ key: 'yt:1', at: 83.4 });
+  });
+
+  test('продолжаем только тот же трек и не у краёв', () => {
+    const p = { key: 'sc:42', at: 83.7 };
+    expect(resumeStart(p, 'sc:42', 240)).toBe(83);
+    expect(resumeStart(p, 'sc:43', 240)).toBe(0);
+    expect(resumeStart({ key: 'sc:42', at: 4 }, 'sc:42', 240)).toBe(0);
+    expect(resumeStart({ key: 'sc:42', at: 230 }, 'sc:42', 240)).toBe(0);
+    expect(resumeStart(p, 'sc:42', 0)).toBe(83);
+    expect(resumeStart(null, 'sc:42', 240)).toBe(0);
   });
 });

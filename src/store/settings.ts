@@ -50,6 +50,8 @@ export interface SettingsValues {
   autoplayRadio: boolean;
   /** Играть полную версию из другого источника вместо 30-секундного превью/недоступного трека. */
   smartFallback: boolean;
+  /** После перезапуска продолжать последний трек с того же места. */
+  resumePlayback: boolean;
   searchSource: SearchSource;
   /** Порядок источников для подмены и радио. */
   sourceOrder: SourceProvider[];
@@ -128,6 +130,7 @@ export const useSettings = create<SettingsState>()(
       showVisualizer: true,
       autoplayRadio: true,
       smartFallback: true,
+      resumePlayback: true,
       searchSource: 'all',
       sourceOrder: ['youtube', 'soundcloud'],
       chartCountry: 'RU',
@@ -228,6 +231,7 @@ export const useSettings = create<SettingsState>()(
         showVisualizer: s.showVisualizer,
         autoplayRadio: s.autoplayRadio,
         smartFallback: s.smartFallback,
+        resumePlayback: s.resumePlayback,
         searchSource: s.searchSource,
         sourceOrder: s.sourceOrder,
         chartCountry: s.chartCountry,
