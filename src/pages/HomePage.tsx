@@ -1,11 +1,12 @@
-import { Disc3, Flame, Earth, Music2, Sparkles } from 'lucide-react';
-import { useMemo } from 'react';
+import { Disc3, Flame, Earth, Music2, Play, RefreshCw, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { GenreTile, MediaCard, QuickTile } from '../components/MediaCard';
 import { EmptyState, ErrorState, Section, SkeletonCards, SkeletonRows } from '../components/States';
 import { TrackList } from '../components/TrackList';
 import { useAsync } from '../hooks/useAsync';
 import { playRemotePlaylist } from '../lib/actions';
 import { api } from '../lib/api';
+import { buildDailyMix, dayStamp, readDailyMix, type DailyMix } from '../lib/dailyMix';
 import { greeting } from '../lib/format';
 import { loadFollowedReleases } from '../lib/releases';
 import { countryName, CHART_COUNTRIES } from '../lib/providers';
@@ -41,6 +42,7 @@ export function HomePage() {
         </Section>
       )}
 
+      {(config.youtube || config.soundcloud) && <DailyMixBlock />}
       {config.youtube && <FollowedReleases />}
       {config.youtube && <ChartsBlock />}
       {config.soundcloud && <ScTrending />}
@@ -48,6 +50,82 @@ export function HomePage() {
       <GenresBlock youtube={config.youtube} soundcloud={config.soundcloud} />
       {config.soundcloud && <ScShelves />}
     </div>
+  );
+}
+
+/** Сколько треков микса видно на главной; «Слушать» включает весь микс. */
+const MIX_PREVIEW = 8;
+
+/** «Микс дня»: по журналу прослушиваний и избранному, меняется раз в день. */
+function DailyMixBlock() {
+  const hasData = useLibrary((s) => s.liked.length > 0 || s.history.length > 0);
+  const [mix, setMix] = useState<DailyMix | null>(() => {
+    const cached = readDailyMix();
+    return cached && cached.day === dayStamp() && cached.tracks.length ? cached : null;
+  });
+  const [status, setStatus] = useState<'idle' | 'loading' | 'empty' | 'error'>('idle');
+
+  const build = useCallback(async (salt?: string) => {
+    setStatus('loading');
+    try {
+      const lib = useLibrary.getState();
+      const recentTracks = uniqueTracks(lib.history.map((h) => h.track)).slice(0, 30);
+      const next = await buildDailyMix({ liked: lib.liked, recentTracks, salt });
+      if (next) setMix(next);
+      setStatus(next ? 'idle' : mix ? 'idle' : 'empty');
+    } catch {
+      setStatus('error');
+    }
+  }, [mix]);
+
+  useEffect(() => {
+    if (hasData && !mix && status === 'idle') void build();
+  }, [hasData, mix, status, build]);
+
+  if (!hasData) return null;
+  const play = (index = 0) => {
+    if (mix) usePlayer.getState().playList(mix.tracks, index, 'Микс дня');
+  };
+  const loading = status === 'loading';
+  const subtitle = mix?.seeds.length
+    ? `По вашим прослушиваниям: ${mix.seeds.slice(0, 3).join(', ')} и похожее`
+    : 'По вашим прослушиваниям и избранному, обновляется каждый день';
+
+  return (
+    <Section
+      title="Микс дня"
+      subtitle={subtitle}
+      action={
+        <div className="daily-mix__actions">
+          <button className="btn btn--primary btn--sm" onClick={() => play(0)} disabled={!mix}>
+            <Play size={15} /> Слушать
+          </button>
+          <button
+            className="btn btn--ghost btn--sm"
+            onClick={() => void build(String(Date.now()))}
+            disabled={loading}
+            aria-label="Собрать другой микс"
+            title="Собрать другой микс"
+          >
+            <RefreshCw size={15} className={loading ? 'spin' : undefined} />
+          </button>
+        </div>
+      }
+    >
+      {mix ? (
+        <TrackList tracks={mix.tracks.slice(0, MIX_PREVIEW)} source="Микс дня" showPlays={false} onPlay={play} />
+      ) : loading || status === 'idle' ? (
+        <SkeletonRows count={5} />
+      ) : status === 'error' ? (
+        <ErrorState message="Не получилось собрать микс: источники не ответили." onRetry={() => void build()} />
+      ) : (
+        <EmptyState
+          icon={<Sparkles size={22} />}
+          title="Пока не из чего собрать микс"
+          text="Послушайте ещё немного или отметьте любимые треки: микс строится по журналу прослушиваний и избранному."
+        />
+      )}
+    </Section>
   );
 }
 

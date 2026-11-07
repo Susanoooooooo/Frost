@@ -1157,3 +1157,10 @@
   color: var(--text-3);
   font-size: calc(13px * var(--ts, 1));
 }
+
+/* Микс дня на главной */
+.daily-mix__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
