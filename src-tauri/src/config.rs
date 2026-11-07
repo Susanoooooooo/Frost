@@ -98,6 +98,32 @@ impl AppConfig {
             std::fs::create_dir_all(dir)?;
         }
         let text = serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string());
-        std::fs::write(path, text)
+        write_atomic(path, text.as_bytes())
     }
+}
+
+/// Запись через временный файл и переименование. Если Frost закроется или пропадёт питание
+/// посреди записи, на диске останется прежний целый файл, а не обрывок
+/// (обрывок config.json при запуске молча сбросил бы все настройки).
+/// Имя временного файла уникально, поэтому одновременные сохранения не мешают друг другу:
+/// каждое переименование ставит целый файл, последнее побеждает.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(format!(".{}-{seq}.tmp", std::process::id()));
+    let tmp = std::path::PathBuf::from(tmp);
+    {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+    }
+    // На Windows rename заменяет существующий файл (MoveFileExW с MOVEFILE_REPLACE_EXISTING)
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
 }

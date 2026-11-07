@@ -23,6 +23,12 @@ pub fn get_config(state: State<'_, AppState>) -> AppConfig {
     state.config()
 }
 
+/// Как Frost представляется LRCLIB и GitHub: с настоящей платформой, а не всегда «Windows».
+#[cfg(target_os = "android")]
+const NET_FETCH_UA: &str = concat!("Frost/", env!("CARGO_PKG_VERSION"), " (Android music player)");
+#[cfg(not(target_os = "android"))]
+const NET_FETCH_UA: &str = concat!("Frost/", env!("CARGO_PKG_VERSION"), " (Windows music player)");
+
 #[tauri::command]
 pub fn set_config(state: State<'_, AppState>, config: AppConfig) -> AppResult<()> {
     state.save_config(config)
@@ -94,7 +100,7 @@ pub async fn net_fetch(
         // LRCLIB и GitHub просят представляться именем приложения
         req = req.header(
             reqwest::header::USER_AGENT,
-            concat!("Frost/", env!("CARGO_PKG_VERSION"), " (Windows music player)"),
+            NET_FETCH_UA,
         );
     }
     let resp = req.send().await?;

@@ -258,8 +258,58 @@ pub fn backup_write(path: String, contents: String) -> AppResult<()> {
     if !is_json {
         return Err(AppError::msg("Резервную копию можно сохранить только в файл .json"));
     }
-    std::fs::write(&target, contents)?;
+    crate::config::write_atomic(&target, contents.as_bytes())?;
     Ok(())
+}
+
+/// Автоматическая резервная копия по расписанию: файл `frost-autobackup-ГГГГ-ММ-ДД.json`
+/// в выбранной папке. Старые автокопии сверх `keep` удаляются; ручные копии
+/// (`frost-backup-…`) и другие файлы в папке не трогаются. Возвращает путь к файлу.
+#[tauri::command]
+pub fn backup_auto(dir: String, name: String, contents: String, keep: usize) -> AppResult<String> {
+    let dir = PathBuf::from(dir);
+    if !dir.is_dir() {
+        return Err(AppError::msg("Папка для резервных копий не найдена"));
+    }
+    if !is_auto_backup_name(&name) {
+        return Err(AppError::msg("Недопустимое имя файла резервной копии"));
+    }
+    let target = dir.join(&name);
+    crate::config::write_atomic(&target, contents.as_bytes())?;
+    prune_auto_backups(&dir, keep.clamp(1, 100));
+    Ok(target.to_string_lossy().into_owned())
+}
+
+/// Имя автокопии: строго `frost-autobackup-ГГГГ-ММ-ДД.json`, без каталогов и лишних символов.
+fn is_auto_backup_name(name: &str) -> bool {
+    let Some(date) = name
+        .strip_prefix("frost-autobackup-")
+        .and_then(|rest| rest.strip_suffix(".json"))
+    else {
+        return false;
+    };
+    date.len() == 10
+        && date
+            .chars()
+            .enumerate()
+            .all(|(i, c)| if i == 4 || i == 7 { c == '-' } else { c.is_ascii_digit() })
+}
+
+/// Оставляет `keep` самых свежих автокопий: дата в имени сортируется как строка.
+fn prune_auto_backups(dir: &Path, keep: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| is_auto_backup_name(n))
+        .collect();
+    names.sort();
+    let excess = names.len().saturating_sub(keep);
+    for name in names.into_iter().take(excess) {
+        let _ = std::fs::remove_file(dir.join(name));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -579,5 +629,58 @@ mod tests {
     #[test]
     fn backup_only_json() {
         assert!(backup_write("C:/tmp/frost.txt".into(), "{}".into()).is_err());
+    }
+
+    #[test]
+    fn auto_backup_names() {
+        assert!(is_auto_backup_name("frost-autobackup-2026-11-07.json"));
+        assert!(!is_auto_backup_name("frost-backup-2026-11-07.json"));
+        assert!(!is_auto_backup_name("frost-autobackup-2026-11-7.json"));
+        assert!(!is_auto_backup_name("frost-autobackup-../../x.json"));
+        assert!(!is_auto_backup_name("frost-autobackup-2026-11-07.json.exe"));
+        assert!(!is_auto_backup_name("frost-autobackup-2026/11/07.json"));
+    }
+
+    #[test]
+    fn auto_backup_rotation() {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("frost-backup-test-{stamp}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        for day in 1..=5 {
+            let name = format!("frost-autobackup-2026-01-0{day}.json");
+            backup_auto(dir.to_string_lossy().into_owned(), name, "{}".into(), 3).unwrap();
+        }
+        std::fs::write(dir.join("frost-backup-2025-12-31.json"), "{}").unwrap();
+        backup_auto(dir.to_string_lossy().into_owned(), "frost-autobackup-2026-01-06.json".into(), "{}".into(), 3).unwrap();
+        let mut left: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .collect();
+        left.sort();
+        assert_eq!(
+            left,
+            vec![
+                "frost-autobackup-2026-01-04.json",
+                "frost-autobackup-2026-01-05.json",
+                "frost-autobackup-2026-01-06.json",
+                "frost-backup-2025-12-31.json",
+            ]
+        );
+        assert!(backup_auto(dir.to_string_lossy().into_owned(), "evil.json".into(), "{}".into(), 3).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_write_replaces_file() {
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("frost-atomic-{stamp}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        crate::config::write_atomic(&path, b"old").unwrap();
+        crate::config::write_atomic(&path, b"new").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+        // Временных файлов не осталось: в папке только config.json
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

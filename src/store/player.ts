@@ -6,7 +6,7 @@ import { api, errorText, ytSession } from '../lib/api';
 import { IS_ANDROID } from '../lib/platform';
 import { PlayFailures } from '../lib/playError';
 import { providerMeta } from '../lib/providers';
-import { shuffled } from '../lib/format';
+import { shuffled, shuffledAvoiding } from '../lib/format';
 import type { RepeatMode, ResolvedStream, SourceProvider, Track } from '../lib/types';
 import { trackKey } from '../lib/types';
 import { useLibrary } from './library';
@@ -221,12 +221,36 @@ async function recover(): Promise<boolean> {
 }
 
 /** Следующий трек без побочных эффектов: для подготовки перехода. Радио сюда не входит. */
+/**
+ * Следующий круг при «повторять всё» с перемешиванием. Перемешиваем заранее и один раз на трек,
+ * чтобы предзагрузка, плавный переход и next() взяли один и тот же порядок. Раньше здесь
+ * возвращался null, и на стыке кругов не было ни предзагрузки, ни плавного перехода.
+ */
+let nextRound: { seq: number; source: Track[]; queue: Track[] } | null = null;
+
+function shuffledRound(s: PlayerState): Track[] {
+  if (nextRound && nextRound.seq === loadSeq && nextRound.source === s.original) return nextRound.queue;
+  const playing = s.current ? trackKey(s.current) : '';
+  const queue = shuffledAvoiding(s.original, (t) => trackKey(t) === playing);
+  nextRound = { seq: loadSeq, source: s.original, queue };
+  return queue;
+}
+
+/** Очередь нового круга при «повторять всё»: в перемешанном режиме новый порядок. */
+function repeatRound(s: PlayerState): Track[] {
+  return s.shuffle && s.original.length ? shuffledRound(s) : s.queue;
+}
+
 function peekNext(s: PlayerState): { track: Track; patch: Partial<PlayerState> } | null {
   if (s.repeat === 'one') return null;
   if (s.upNext.length) return { track: s.upNext[0], patch: { upNext: s.upNext.slice(1) } };
   const i = s.index + 1;
   if (i < s.queue.length) return { track: s.queue[i], patch: { index: i } };
-  if (s.repeat === 'all' && s.queue.length && !s.shuffle) return { track: s.queue[0], patch: { index: 0 } };
+  if (s.repeat === 'all' && s.queue.length) {
+    const queue = repeatRound(s);
+    if (!queue.length) return null;
+    return { track: queue[0], patch: s.shuffle ? { queue, index: 0 } : { index: 0 } };
+  }
   return null;
 }
 
@@ -428,9 +452,9 @@ export const usePlayer = create<PlayerState>()(
           return;
         }
         if (s.repeat === 'all' && s.queue.length) {
-          const queue = s.shuffle ? shuffled(s.original) : s.queue;
+          const queue = repeatRound(s);
           set({ queue, index: 0 });
-          void loadTrack(queue[0], true);
+          void loadTrack(queue[0], true, { pre: takePrepared(queue[0]) });
           return;
         }
         if (useSettings.getState().autoplayRadio && s.current) {
