@@ -1,3 +1,4 @@
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { Suspense, useEffect } from 'react';
 import { ContextMenu } from '../components/ContextMenu';
 import { ModalHost } from '../components/Modals';
@@ -37,7 +38,9 @@ export function MobileApp() {
               </div>
             }
           >
-            <RouteView route={route} />
+            <ErrorBoundary scope="page" resetKey={JSON.stringify(route)}>
+                <RouteView route={route} />
+              </ErrorBoundary>
           </Suspense>
         </div>
       </main>

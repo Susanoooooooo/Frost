@@ -1,3 +1,4 @@
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { isMiniWindow } from './lib/desktop';
@@ -26,7 +27,9 @@ if (isMiniWindow) {
   void Promise.all([import('./App'), initPlatform()]).then(([{ default: App }]) =>
     root.render(
       <StrictMode>
-        <App />
+        <ErrorBoundary scope="app">
+          <App />
+        </ErrorBoundary>
       </StrictMode>,
     ),
   );
