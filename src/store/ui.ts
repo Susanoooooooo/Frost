@@ -1,3 +1,4 @@
+import type { WhatsNewItem } from '../lib/whatsNew';
 import type { ReactNode } from 'react';
 import { create } from 'zustand';
 import type { Provider, Track, SearchSource } from '../lib/types';
@@ -45,6 +46,7 @@ export type ModalState =
       onSubmit: (value: string) => void;
     }
   | { kind: 'add-to-playlist'; tracks: Track[] }
+  | { kind: 'whats-new'; version: string; items: WhatsNewItem[] }
   | {
       kind: 'confirm';
       title: string;

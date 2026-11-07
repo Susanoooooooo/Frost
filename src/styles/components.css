@@ -1112,6 +1112,29 @@
 .modal__text {
   color: var(--text-2);
 }
+.whats-new {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.whats-new__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.whats-new__title {
+  font-weight: 600;
+}
+.whats-new__text {
+  color: var(--text-2);
+  font-size: calc(13px * var(--ts, 1));
+  line-height: 1.45;
+}
 .modal__actions {
   display: flex;
   justify-content: flex-end;

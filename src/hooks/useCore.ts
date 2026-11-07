@@ -8,6 +8,7 @@ import { useAppearance } from './useAppearance';
 import { useUpdateCheck } from './useBackground';
 import { useListening } from './useIntegrations';
 import { useResumePoint } from './useResume';
+import { useWhatsNew } from './useWhatsNew';
 import { useSleepTimer } from './useSleepTimer';
 
 /** Устройство вывода (только Windows) и выравнивание громкости из настроек. */
@@ -32,6 +33,7 @@ export function useCore() {
   useAudioOutput();
   useListening();
   useResumePoint();
+  useWhatsNew();
 
   useEffect(() => {
     void useSettings.getState().loadConfig();

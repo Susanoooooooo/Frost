@@ -1,3 +1,5 @@
+import { GITHUB_REPO } from '../lib/links';
+import { openExternal } from '../lib/window';
 import { ListMusic, Plus } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { tracksLabel } from '../lib/format';
@@ -46,6 +48,31 @@ function ModalBody({ modal, close }: { modal: ModalState; close: () => void }) {
       );
     case 'add-to-playlist':
       return <AddToPlaylist tracks={modal.tracks} close={close} />;
+    case 'whats-new':
+      return (
+        <>
+          <h3 className="modal__title">Что нового в Frost {modal.version}</h3>
+          <ul className="whats-new">
+            {modal.items.map((item) => (
+              <li key={item.title} className="whats-new__item">
+                <strong className="whats-new__title">{item.title}</strong>
+                <span className="whats-new__text">{item.text}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="modal__actions">
+            <button
+              className="btn btn--ghost"
+              onClick={() => void openExternal(`https://github.com/${GITHUB_REPO}/releases/tag/v${modal.version}`)}
+            >
+              Все изменения
+            </button>
+            <button className="btn btn--primary" onClick={close} autoFocus>
+              Отлично
+            </button>
+          </div>
+        </>
+      );
   }
 }
 

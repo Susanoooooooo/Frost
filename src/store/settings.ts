@@ -61,6 +61,8 @@ export interface SettingsValues {
   eqGains: number[];
   /** Обучение при первом запуске пройдено (или пропущено). */
   onboardingDone: boolean;
+  /** Версия, для которой уже показано окно «Что нового». */
+  lastSeenVersion: string;
   /** Пользователь скрыл карточку Telegram-канала в боковой панели. */
   hideTelegramCard: boolean;
   /** Закрытие окна прячет Frost в трей (музыка продолжает играть). */
@@ -136,6 +138,7 @@ export const useSettings = create<SettingsState>()(
       chartCountry: 'RU',
       eqEnabled: false,
       onboardingDone: false,
+      lastSeenVersion: '',
       hideTelegramCard: false,
       closeToTray: true,
       startMinimized: true,
@@ -239,6 +242,7 @@ export const useSettings = create<SettingsState>()(
         eqPreset: s.eqPreset,
         eqGains: s.eqGains,
         onboardingDone: s.onboardingDone,
+        lastSeenVersion: s.lastSeenVersion,
         hideTelegramCard: s.hideTelegramCard,
         closeToTray: s.closeToTray,
         startMinimized: s.startMinimized,
