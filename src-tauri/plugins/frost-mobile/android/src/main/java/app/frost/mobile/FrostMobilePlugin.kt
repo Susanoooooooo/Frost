@@ -76,12 +76,6 @@ class SaveDocumentArgs {
     var contents: String = ""
 }
 
-@TauriPlugin(
-    permissions = [
-        Permission(strings = [Manifest.permission.READ_MEDIA_AUDIO], alias = "audio"),
-        Permission(strings = [Manifest.permission.READ_EXTERNAL_STORAGE], alias = "storage"),
-    ],
-)
 @InvokeArg
 class HapticArgs {
     var kind: String? = null
@@ -92,6 +86,15 @@ class VoiceArgs {
     var prompt: String? = null
 }
 
+// Аннотация должна стоять прямо над классом плагина: Tauri читает разрешения
+// (псевдонимы audio и storage) с класса плагина. В 0.9.x она по ошибке висела
+// на HapticArgs, и запрос доступа к музыке на телефоне не работал.
+@TauriPlugin(
+    permissions = [
+        Permission(strings = [Manifest.permission.READ_MEDIA_AUDIO], alias = "audio"),
+        Permission(strings = [Manifest.permission.READ_EXTERNAL_STORAGE], alias = "storage"),
+    ],
+)
 class FrostMobilePlugin(private val activity: Activity) : Plugin(activity) {
     private var webView: WebView? = null
     private var insets = JSObject()
