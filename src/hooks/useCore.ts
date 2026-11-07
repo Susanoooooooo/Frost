@@ -7,6 +7,7 @@ import { toast, useUi } from '../store/ui';
 import { useAppearance } from './useAppearance';
 import { useUpdateCheck } from './useBackground';
 import { useListening } from './useIntegrations';
+import { useAutoBackup } from './useAutoBackup';
 import { useResumePoint } from './useResume';
 import { useWhatsNew } from './useWhatsNew';
 import { useSleepTimer } from './useSleepTimer';
@@ -34,6 +35,7 @@ export function useCore() {
   useListening();
   useResumePoint();
   useWhatsNew();
+  useAutoBackup();
 
   useEffect(() => {
     void useSettings.getState().loadConfig();

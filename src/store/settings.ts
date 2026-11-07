@@ -1,3 +1,4 @@
+import type { BackupEvery } from '../lib/backupFormat';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { api, errorText } from '../lib/api';
@@ -63,6 +64,13 @@ export interface SettingsValues {
   onboardingDone: boolean;
   /** Версия, для которой уже показано окно «Что нового». */
   lastSeenVersion: string;
+  /** Автокопия: на Windows в папку autoBackupDir, на Android напоминание. */
+  autoBackup: BackupEvery;
+  autoBackupDir: string;
+  /** Когда последний раз сохраняли копию (вручную или автоматически), мс. */
+  lastBackupAt: number;
+  /** Когда последний раз напоминали о копии (Android), мс. */
+  backupRemindedAt: number;
   /** Пользователь скрыл карточку Telegram-канала в боковой панели. */
   hideTelegramCard: boolean;
   /** Закрытие окна прячет Frost в трей (музыка продолжает играть). */
@@ -139,6 +147,10 @@ export const useSettings = create<SettingsState>()(
       eqEnabled: false,
       onboardingDone: false,
       lastSeenVersion: '',
+      autoBackup: 'off',
+      autoBackupDir: '',
+      lastBackupAt: 0,
+      backupRemindedAt: 0,
       hideTelegramCard: false,
       closeToTray: true,
       startMinimized: true,
@@ -243,6 +255,10 @@ export const useSettings = create<SettingsState>()(
         eqGains: s.eqGains,
         onboardingDone: s.onboardingDone,
         lastSeenVersion: s.lastSeenVersion,
+        autoBackup: s.autoBackup,
+        autoBackupDir: s.autoBackupDir,
+        lastBackupAt: s.lastBackupAt,
+        backupRemindedAt: s.backupRemindedAt,
         hideTelegramCard: s.hideTelegramCard,
         closeToTray: s.closeToTray,
         startMinimized: s.startMinimized,
