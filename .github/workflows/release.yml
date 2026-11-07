@@ -2,6 +2,9 @@
 # Запуск: поставьте тег вида v0.9.0 и отправьте его (git push origin v0.9.0)
 # или нажмите «Run workflow» на вкладке Actions.
 # Версия берётся из src-tauri/tauri.conf.json, тег и название релиза: v<версия>.
+# Текст релиза собирается из раздела CHANGELOG.md этой версии (scripts/release-notes.mjs):
+# если раздела нет, выпуск остановится с понятной ошибкой.
+# Рядом с установщиком и APK публикуются файлы .sha256: Frost сверяет их перед установкой.
 # Черновик нужно опубликовать вручную: только после этого Frost увидит обновление.
 name: Release
 
@@ -46,26 +49,42 @@ jobs:
         working-directory: ${{ steps.app.outputs.dir }}
         run: npm ci
 
+      - name: Описание релиза из CHANGELOG.md
+        id: notes
+        working-directory: ${{ steps.app.outputs.dir }}
+        run: |
+          {
+            echo 'body<<FROST_RELEASE_NOTES'
+            node scripts/release-notes.mjs
+            echo
+            echo 'FROST_RELEASE_NOTES'
+          } >> "$GITHUB_OUTPUT"
+
       - uses: tauri-apps/tauri-action@v1
+        id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: ${{ steps.app.outputs.dir }}
           tagName: v__VERSION__
           releaseName: Frost v__VERSION__
-          releaseBody: |
-            Установщик для Windows 10 и 11 (x64): файл `Frost_*_x64-setup.exe` ниже.
-            Android 8.0 и новее (arm64 и armv7): файл `Frost_*_android.apk` ниже.
-            Что нового: см. CHANGELOG.md в репозитории.
-
-            Windows может показать предупреждение SmartScreen, потому что установщик не подписан:
-            «Подробнее» → «Выполнить в любом случае».
-
-            Android: откройте APK на телефоне и разрешите установку из этого источника.
-            Обновления тоже ставятся поверх, данные сохраняются. Подробнее: docs/ANDROID.md.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           uploadWorkflowArtifacts: true
+
+      # Контрольная сумма рядом с установщиком: Frost скачивает её при обновлении
+      # и отменяет установку, если файл повреждён или подменён.
+      - name: SHA-256 установщика в черновик релиза
+        working-directory: ${{ steps.app.outputs.dir }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          cd src-tauri/target/release/bundle/nsis
+          for f in *-setup.exe; do sha256sum "$f" | cut -d' ' -f1 | tr -d '*' > "$f.sha256"; done
+          cat ./*.sha256
+          gh release upload "v$version" ./*-setup.exe.sha256 --clobber --repo "$GITHUB_REPOSITORY"
 
   # APK для Android: тот же процесс, что и ручной запуск Android во вкладке Actions
   android:
@@ -86,8 +105,12 @@ jobs:
           name: ${{ needs.android.outputs.artifact }}
           path: apk
 
-      - name: Прикрепить APK
+      - name: Прикрепить APK и его SHA-256
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: v${{ needs.android.outputs.version }}
-        run: gh release upload "$TAG" apk/*.apk --clobber --repo "$GITHUB_REPOSITORY"
+        run: |
+          cd apk
+          for f in *.apk; do sha256sum "$f" | cut -d' ' -f1 > "$f.sha256"; done
+          cat ./*.sha256
+          gh release upload "$TAG" ./*.apk ./*.apk.sha256 --clobber --repo "$GITHUB_REPOSITORY"

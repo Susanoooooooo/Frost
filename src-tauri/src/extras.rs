@@ -24,6 +24,7 @@ const RELEASES_PREFIX: &str = "https://github.com/Susanoooooooo/Frost/releases/d
 /// Скачивает установщик NSIS из релиза, запускает его в режиме обновления
 /// (`/P` — только полоса прогресса, `/UPDATE` — без лишних вопросов, `/R` — перезапуск Frost)
 /// и закрывает приложение, чтобы установщик мог заменить файлы.
+/// Перед запуском сверяется SHA-256 из файла `.sha256` того же релиза.
 #[tauri::command]
 pub async fn update_install(app: AppHandle, state: State<'_, AppState>, url: String) -> AppResult<()> {
     // Windows получает установщик NSIS, Android: APK из того же релиза.
@@ -50,8 +51,48 @@ pub async fn update_install(app: AppHandle, state: State<'_, AppState>, url: Str
     if bytes.len() < 512 * 1024 {
         return Err(AppError::msg("Файл обновления подозрительно маленький, установка отменена"));
     }
+    verify_checksum(&state, &url, &bytes).await?;
 
     run_installer(&app, &name, &bytes)
+}
+
+/// Сверяет SHA-256 скачанного файла с `<файл>.sha256` из того же релиза (его публикует release.yml).
+/// Релизы до 1.0.0 суммы не публиковали: если файла нет (404), ставим как раньше.
+/// Несовпадение или битый файл суммы отменяют установку.
+async fn verify_checksum(state: &AppState, url: &str, bytes: &[u8]) -> AppResult<()> {
+    let resp = state
+        .http()
+        .get(format!("{url}.sha256"))
+        .send()
+        .await
+        .map_err(|e| AppError::Network(format!("Не удалось скачать контрольную сумму обновления: {e}")))?;
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(());
+    }
+    let resp = crate::net::ensure_ok(resp).await?;
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| AppError::Network(format!("Не удалось прочитать контрольную сумму обновления: {e}")))?;
+    let expected = parse_sha256(&text)
+        .ok_or_else(|| AppError::msg("Файл контрольной суммы обновления повреждён, установка отменена"))?;
+    if sha256_hex(bytes) != expected {
+        return Err(AppError::msg(
+            "Контрольная сумма обновления не совпала: файл повреждён или подменён, установка отменена",
+        ));
+    }
+    Ok(())
+}
+
+/// Первое слово файла в формате `sha256sum`: 64 шестнадцатеричных символа (регистр не важен).
+fn parse_sha256(text: &str) -> Option<String> {
+    let hex = text.split_whitespace().next()?.trim_start_matches('*').to_ascii_lowercase();
+    (hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit())).then_some(hex)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Android: APK кладём в кэш приложения и отдаём системному установщику (FileProvider).
@@ -629,6 +670,27 @@ mod tests {
     #[test]
     fn backup_only_json() {
         assert!(backup_write("C:/tmp/frost.txt".into(), "{}".into()).is_err());
+    }
+
+    #[test]
+    fn sha256_known_vector() {
+        // SHA-256("abc") из FIPS 180-2
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn sha256_file_formats() {
+        let hash = "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD";
+        let lower = hash.to_ascii_lowercase();
+        assert_eq!(parse_sha256(hash).as_deref(), Some(lower.as_str()));
+        assert_eq!(parse_sha256(&format!("{hash}  Frost_1.0.0_x64-setup.exe\n")).as_deref(), Some(lower.as_str()));
+        assert_eq!(parse_sha256(&format!("*{hash} *Frost.apk")).as_deref(), Some(lower.as_str()));
+        assert_eq!(parse_sha256("deadbeef"), None);
+        assert_eq!(parse_sha256(""), None);
+        assert_eq!(parse_sha256(&"z".repeat(64)), None);
     }
 
     #[test]

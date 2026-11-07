@@ -36,3 +36,31 @@ describe('Android: плагин frost-mobile', () => {
     expect(block?.[1]).toContain('alias = "storage"');
   });
 });
+
+describe('описание релиза из CHANGELOG.md', () => {
+  // @ts-expect-error: .mjs-скрипт без объявления типов
+  const notesModule = import('../scripts/release-notes.mjs') as Promise<{
+    changelogSection: (changelog: string, version: string) => string | null;
+    releaseBody: (section: string, version: string) => string;
+  }>;
+  const log = ['# Changelog', '', '## 1.0.0 (2026-11-07)', '', '### Новое', '- раз', '', '## 1.0.0-beta', '- бета', '## 0.9.1 и раньше', '- старое'].join('\r\n');
+
+  test('берёт ровно раздел версии до следующего заголовка', async () => {
+    const { changelogSection } = await notesModule;
+    expect(changelogSection(log, '1.0.0')).toBe('### Новое\n- раз');
+    expect(changelogSection(log, '1.0.0-beta')).toBe('- бета');
+    expect(changelogSection(log, '0.9.1')).toBe('- старое');
+    expect(changelogSection(log, '1.0')).toBeNull();
+    expect(changelogSection(log, '2.0.0')).toBeNull();
+  });
+
+  test('текст релиза содержит раздел и инструкцию по установке', async () => {
+    const { releaseBody } = await notesModule;
+    const body = releaseBody('- раз', '1.0.0');
+    expect(body).toContain('Frost 1.0.0');
+    expect(body).toContain('- раз');
+    expect(body).toContain('x64-setup.exe');
+    expect(body).toContain('android.apk');
+    expect(body).toContain('.sha256');
+  });
+});
