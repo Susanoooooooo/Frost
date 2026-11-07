@@ -654,6 +654,52 @@
   }
 }
 
+/*
+ * Телефон боком и планшет в альбомной ориентации: обложка слева, название и управление
+ * справа, по центру по высоте. Раньше колонка оставалась одна, и обложка сжималась почти в ноль.
+ */
+@media (orientation: landscape) and (min-width: 600px) {
+  .m-np {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    grid-template-rows: auto 1fr auto auto auto auto 1fr;
+    grid-template-areas:
+      'top top'
+      'body .'
+      'body meta'
+      'body seek'
+      'body controls'
+      'body tabs'
+      'body .';
+    column-gap: clamp(16px, 4vw, 48px);
+  }
+
+  .m-np__top {
+    grid-area: top;
+  }
+
+  .m-np__body {
+    grid-area: body;
+    padding: 4px 0;
+  }
+
+  .m-np__meta {
+    grid-area: meta;
+  }
+
+  .m-np__seek {
+    grid-area: seek;
+  }
+
+  .m-np__controls {
+    grid-area: controls;
+  }
+
+  .m-np__tabs {
+    grid-area: tabs;
+  }
+}
+
 /* ---------- Нижний лист вместо контекстного меню ---------- */
 
 .sheet-scrim {
