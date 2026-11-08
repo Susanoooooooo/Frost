@@ -1,10 +1,12 @@
 import { ListMusic, X } from 'lucide-react';
 import type { Track } from '../lib/types';
-import { trackKey } from '../lib/types';
+import { trackKey, uniqueTracks } from '../lib/types';
+import { tracksLabel } from '../lib/format';
+import { useLibrary } from '../store/library';
 import { useDragSort, type DragItemProps } from '../hooks/useDragSort';
 import { IS_ANDROID } from '../lib/platform';
 import { usePlayer } from '../store/player';
-import { useUi } from '../store/ui';
+import { navigate, toast, useUi } from '../store/ui';
 import { Artwork } from './Artwork';
 import { EqBars } from './EqBars';
 import { LyricsView } from './Lyrics';
@@ -38,6 +40,30 @@ export function SidePanel() {
   );
 }
 
+/** Вся очередь в порядке воспроизведения: сыгранное, текущий, «играть далее» и остаток. */
+function saveQueueAsPlaylist() {
+  const s = usePlayer.getState();
+  if (!s.current) return;
+  const tracks = uniqueTracks([...s.queue.slice(0, s.index + 1), s.current, ...s.upNext, ...s.queue.slice(s.index + 1)]);
+  const date = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  const fallback = `Очередь ${date}`;
+  useUi.getState().openModal({
+    kind: 'prompt',
+    title: 'Сохранить очередь как плейлист',
+    placeholder: 'Название плейлиста',
+    initial: s.source ? `${s.source}, ${date}` : fallback,
+    confirm: 'Сохранить',
+    onSubmit: (value) => {
+      const name = value.trim() || fallback;
+      const id = useLibrary.getState().createPlaylist(name, tracks);
+      toast(`Плейлист «${name}»: ${tracksLabel(tracks.length)}`, 'success', {
+        label: 'Открыть',
+        onClick: () => navigate({ name: 'local-playlist', id }),
+      });
+    },
+  });
+}
+
 export function QueueList() {
   const current = usePlayer((s) => s.current);
   const queue = usePlayer((s) => s.queue);
@@ -54,7 +80,12 @@ export function QueueList() {
 
   return (
     <div className="queue">
-      <div className="queue__label">Сейчас играет</div>
+      <div className="queue__label">
+        <span>Сейчас играет</span>
+        <button className="link" onClick={saveQueueAsPlaylist} title="Сохранить всю очередь в новый плейлист">
+          Сохранить как плейлист
+        </button>
+      </div>
       <QueueItem track={current} active playing={isPlaying} />
 
       {upNext.length > 0 && (

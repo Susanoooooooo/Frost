@@ -1,6 +1,6 @@
 [package]
 name = "frost"
-version = "0.9.1"
+version = "1.0.0"
 description = "Frost: музыкальный плеер для Windows и Android (SoundCloud + YouTube Music) в стиле Material You"
 authors = ["Frost contributors"]
 license = "GPL-3.0-or-later"
@@ -35,6 +35,8 @@ tokio = { version = "1", features = ["sync", "time", "rt", "rt-multi-thread", "m
 http = "1"
 url = "2"
 base64 = "0.22"
+# Проверка SHA-256 скачанного обновления (установщик Windows и APK)
+sha2 = "0.10"
 thiserror = "2"
 
 # Десктоп: системный TLS (schannel на Windows), окно, трей, хоткеи, автозапуск.

@@ -1,3 +1,4 @@
+import type { BackupEvery } from '../lib/backupFormat';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { api, errorText } from '../lib/api';
@@ -23,6 +24,8 @@ export interface SettingsValues {
   theme: ThemeMode;
   /** Material You: цвета интерфейса из обложки текущего трека. */
   dynamicAccent: boolean;
+  /** Android 12+: цвета из обоев, как у системы. Важнее обложки и выбранного цвета. */
+  wallpaperColors: boolean;
   /** Сид схемы, когда динамический цвет выключен. */
   seedColor: string;
   /** Вариант динамической палитры Material You. */
@@ -48,6 +51,8 @@ export interface SettingsValues {
   autoplayRadio: boolean;
   /** Играть полную версию из другого источника вместо 30-секундного превью/недоступного трека. */
   smartFallback: boolean;
+  /** После перезапуска продолжать последний трек с того же места. */
+  resumePlayback: boolean;
   searchSource: SearchSource;
   /** Порядок источников для подмены и радио. */
   sourceOrder: SourceProvider[];
@@ -57,6 +62,15 @@ export interface SettingsValues {
   eqGains: number[];
   /** Обучение при первом запуске пройдено (или пропущено). */
   onboardingDone: boolean;
+  /** Версия, для которой уже показано окно «Что нового». */
+  lastSeenVersion: string;
+  /** Автокопия: на Windows в папку autoBackupDir, на Android напоминание. */
+  autoBackup: BackupEvery;
+  autoBackupDir: string;
+  /** Когда последний раз сохраняли копию (вручную или автоматически), мс. */
+  lastBackupAt: number;
+  /** Когда последний раз напоминали о копии (Android), мс. */
+  backupRemindedAt: number;
   /** Пользователь скрыл карточку Telegram-канала в боковой панели. */
   hideTelegramCard: boolean;
   /** Закрытие окна прячет Frost в трей (музыка продолжает играть). */
@@ -111,6 +125,7 @@ export const useSettings = create<SettingsState>()(
       backdrop: 'glass',
       theme: 'dark',
       dynamicAccent: true,
+      wallpaperColors: false,
       seedColor: BASELINE_SEED,
       materialStyle: 'tonalSpot',
       contrastLevel: 'standard',
@@ -125,11 +140,17 @@ export const useSettings = create<SettingsState>()(
       showVisualizer: true,
       autoplayRadio: true,
       smartFallback: true,
+      resumePlayback: true,
       searchSource: 'all',
       sourceOrder: ['youtube', 'soundcloud'],
       chartCountry: 'RU',
       eqEnabled: false,
       onboardingDone: false,
+      lastSeenVersion: '',
+      autoBackup: 'off',
+      autoBackupDir: '',
+      lastBackupAt: 0,
+      backupRemindedAt: 0,
       hideTelegramCard: false,
       closeToTray: true,
       startMinimized: true,
@@ -210,6 +231,7 @@ export const useSettings = create<SettingsState>()(
         backdrop: s.backdrop,
         theme: s.theme,
         dynamicAccent: s.dynamicAccent,
+        wallpaperColors: s.wallpaperColors,
         seedColor: s.seedColor,
         materialStyle: s.materialStyle,
         contrastLevel: s.contrastLevel,
@@ -224,6 +246,7 @@ export const useSettings = create<SettingsState>()(
         showVisualizer: s.showVisualizer,
         autoplayRadio: s.autoplayRadio,
         smartFallback: s.smartFallback,
+        resumePlayback: s.resumePlayback,
         searchSource: s.searchSource,
         sourceOrder: s.sourceOrder,
         chartCountry: s.chartCountry,
@@ -231,6 +254,11 @@ export const useSettings = create<SettingsState>()(
         eqPreset: s.eqPreset,
         eqGains: s.eqGains,
         onboardingDone: s.onboardingDone,
+        lastSeenVersion: s.lastSeenVersion,
+        autoBackup: s.autoBackup,
+        autoBackupDir: s.autoBackupDir,
+        lastBackupAt: s.lastBackupAt,
+        backupRemindedAt: s.backupRemindedAt,
         hideTelegramCard: s.hideTelegramCard,
         closeToTray: s.closeToTray,
         startMinimized: s.startMinimized,

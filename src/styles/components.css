@@ -1112,6 +1112,29 @@
 .modal__text {
   color: var(--text-2);
 }
+.whats-new {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.whats-new__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.whats-new__title {
+  font-weight: 600;
+}
+.whats-new__text {
+  color: var(--text-2);
+  font-size: calc(13px * var(--ts, 1));
+  line-height: 1.45;
+}
 .modal__actions {
   display: flex;
   justify-content: flex-end;
@@ -1133,4 +1156,48 @@
   padding: 12px;
   color: var(--text-3);
   font-size: calc(13px * var(--ts, 1));
+}
+
+/* Микс дня на главной */
+.daily-mix__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Экран ошибки отрисовки (ErrorBoundary) */
+.crash {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 560px;
+  margin: 48px auto;
+  padding: 0 24px;
+}
+.crash--app {
+  margin-top: 18vh;
+}
+.crash__title {
+  font-size: calc(22px * var(--ts, 1));
+  font-weight: 700;
+}
+.crash__text {
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.crash__error {
+  max-width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface-2, rgba(127, 127, 127, 0.12));
+  color: var(--text-2);
+  font-size: calc(12px * var(--ts, 1));
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.crash__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }

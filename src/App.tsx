@@ -1,3 +1,4 @@
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { lazy, Suspense } from 'react';
 import { Ambient } from './components/Ambient';
 import { ContextMenu } from './components/ContextMenu';
@@ -61,7 +62,9 @@ function DesktopApp() {
                 </div>
               }
             >
-              <RouteView route={route} />
+              <ErrorBoundary scope="page" resetKey={JSON.stringify(route)}>
+                <RouteView route={route} />
+              </ErrorBoundary>
             </Suspense>
           </div>
         </main>

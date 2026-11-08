@@ -1,3 +1,4 @@
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { Suspense, useEffect } from 'react';
 import { ContextMenu } from '../components/ContextMenu';
 import { ModalHost } from '../components/Modals';
@@ -14,6 +15,7 @@ import { MiniPlayer } from './MiniPlayer';
 import { MobileNowPlaying } from './MobileNowPlaying';
 import { MobileTopBar } from './MobileTopBar';
 import { useBackButton } from './useBackButton';
+import { useIncomingLinks } from './useIncomingLinks';
 
 /** Оболочка для телефона: верхняя панель, страница, мини-плеер и нижняя навигация. */
 export function MobileApp() {
@@ -22,6 +24,7 @@ export function MobileApp() {
   useCore();
   useBackButton();
   useSystemInsets();
+  useIncomingLinks();
 
   return (
     <div className={`app app--mobile ${hasTrack ? 'has-track' : ''}`}>
@@ -35,7 +38,9 @@ export function MobileApp() {
               </div>
             }
           >
-            <RouteView route={route} />
+            <ErrorBoundary scope="page" resetKey={JSON.stringify(route)}>
+                <RouteView route={route} />
+              </ErrorBoundary>
           </Suspense>
         </div>
       </main>

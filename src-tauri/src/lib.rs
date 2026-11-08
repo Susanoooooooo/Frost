@@ -80,6 +80,7 @@ pub fn run() {
             extras::local_allow,
             extras::local_cover_save,
             extras::backup_write,
+            extras::backup_auto,
             extras::net_post,
             extras::discord_set,
             extras::discord_clear,

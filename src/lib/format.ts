@@ -63,6 +63,16 @@ export function shuffled<T>(list: T[]): T[] {
   return a;
 }
 
+/** Перемешанный список, который не начинается с элемента, подходящего под `avoid` (если есть другие). */
+export function shuffledAvoiding<T>(list: T[], avoid: (item: T) => boolean): T[] {
+  const a = shuffled(list);
+  if (a.length > 1 && avoid(a[0])) {
+    const j = a.findIndex((x) => !avoid(x));
+    if (j > 0) [a[0], a[j]] = [a[j], a[0]];
+  }
+  return a;
+}
+
 export function timeAgo(ts: number): string {
   const diff = Math.max(0, Date.now() - ts) / 1000;
   if (diff < 60) return tr('только что');

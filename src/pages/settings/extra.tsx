@@ -2,15 +2,14 @@
  * Группы настроек версии 0.9: Windows, звук (переход, громкость, устройство, пресеты),
  * интеграции, данные и проверка обновлений.
  */
-import { invoke } from '@tauri-apps/api/core';
 import { Database, Download, ExternalLink, Monitor, Plug, RotateCcw, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Switch } from '../../components/Switch';
 import { accelFromEvent, accelLabel } from '../../lib/accelerator';
-import { saveDocument } from '../../lib/android';
+import { applyBackup, AUTO_BACKUP_KEEP, exportBackup, parseBackup, pickBackupFolder, writeAutoBackup, type BackupEvery } from '../../lib/backup';
 import { DEFAULT_GLOBAL_KEYS, GLOBAL_ACTIONS, getAutostart, openMiniPlayer, setAutostart, type GlobalAction } from '../../lib/desktop';
 import { buildReport } from '../../lib/diagnostics';
-import { clearJournal, exportJournal, importJournal, journalSize } from '../../lib/journal';
+import { clearJournal, journalSize } from '../../lib/journal';
 import { DISCORD_APP_ID, LISTENBRAINZ_SETTINGS, newIssueUrl } from '../../lib/links';
 import { lastfmAuthUrl, lastfmAvailable, lastfmGetSession, lastfmGetToken, listenbrainzValidate, loadQueue } from '../../lib/scrobble';
 import { IS_ANDROID } from '../../lib/platform';
@@ -18,7 +17,6 @@ import { flushScrobbles } from '../../lib/scrobbler';
 import { findAppUpdate, installAppUpdate, type AppUpdate } from '../../lib/updates';
 import { APP_VERSION } from '../../lib/version';
 import { isTauri, openExternal } from '../../lib/window';
-import { useLibrary } from '../../store/library';
 import { useSettings } from '../../store/settings';
 import { toast, useUi } from '../../store/ui';
 import { Group, Row } from './ui';
@@ -411,22 +409,6 @@ export function IntegrationsGroup() {
 // Данные
 // ---------------------------------------------------------------------------
 
-interface Backup {
-  app: 'frost';
-  version: string;
-  created: string;
-  settings: Record<string, unknown>;
-  library: Record<string, unknown>;
-  journal?: unknown;
-}
-
-/** Токены сервисов в копию не попадают: при восстановлении их проще ввести заново. */
-const SECRET_KEYS = ['listenbrainzToken', 'listenbrainzUser', 'lastfmSession', 'lastfmUser'];
-
-function plainState(state: object): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(state).filter(([, v]) => typeof v !== 'function'));
-}
-
 export function DataGroup() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [records, setRecords] = useState<number | null>(null);
@@ -435,35 +417,11 @@ export function DataGroup() {
     void journalSize().then(setRecords);
   }, []);
 
+  const s = useSettings();
+
   const save = async () => {
     try {
-      const settings = plainState(useSettings.getState());
-      delete settings.config;
-      for (const k of SECRET_KEYS) delete settings[k];
-      const backup: Backup = {
-        app: 'frost',
-        version: APP_VERSION,
-        created: new Date().toISOString(),
-        settings,
-        library: plainState(useLibrary.getState()),
-        journal: await exportJournal(),
-      };
-      const fileName = `frost-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      if (IS_ANDROID) {
-        // Диалог Android отдаёт не путь, а адрес документа: записывает сам плагин
-        if (!(await saveDocument(fileName, JSON.stringify(backup)))) return;
-        toast('Резервная копия сохранена', 'success');
-        return;
-      }
-      const { save: pick } = await import('@tauri-apps/plugin-dialog');
-      const path = await pick({
-        title: 'Резервная копия Frost',
-        defaultPath: fileName,
-        filters: [{ name: 'Резервная копия', extensions: ['json'] }],
-      });
-      if (!path) return;
-      await invoke('backup_write', { path, contents: JSON.stringify(backup) });
-      toast('Резервная копия сохранена', 'success');
+      if (await exportBackup()) toast('Резервная копия сохранена', 'success');
     } catch (e) {
       toast(`Не удалось сохранить копию: ${errText(e)}`, 'error');
     }
@@ -471,23 +429,40 @@ export function DataGroup() {
 
   const restore = async (file: File) => {
     try {
-      const data = JSON.parse(await file.text()) as Partial<Backup>;
-      if (data.app !== 'frost' || !data.settings || !data.library) throw new Error('это не резервная копия Frost');
-      const settings = { ...data.settings };
-      for (const k of [...SECRET_KEYS, 'config']) delete settings[k];
-      const current = useSettings.getState() as unknown as Record<string, unknown>;
-      const patch = Object.fromEntries(Object.entries(settings).filter(([k, v]) => k in current && typeof current[k] === typeof v));
-      useSettings.getState().update(patch);
-      const lib = useLibrary.getState() as unknown as Record<string, unknown>;
-      const libPatch = Object.fromEntries(Object.entries(data.library).filter(([k, v]) => k in lib && typeof lib[k] !== 'function' && Array.isArray(lib[k]) === Array.isArray(v)));
-      useLibrary.setState(libPatch);
-      const added = await importJournal(data.journal as never);
+      const { created, added } = await applyBackup(parseBackup(await file.text()));
       setRecords(await journalSize());
-      toast(`Восстановлено из копии от ${new Date(data.created ?? '').toLocaleDateString('ru-RU')}${added ? `, записей журнала: ${added}` : ''}`, 'success');
+      toast(`Восстановлено из копии от ${new Date(created).toLocaleDateString('ru-RU')}${added ? `, записей журнала: ${added}` : ''}`, 'success');
     } catch (e) {
       toast(`Не удалось восстановить: ${errText(e)}`, 'error');
     }
   };
+
+  const chooseFolder = async () => {
+    try {
+      const dir = await pickBackupFolder();
+      if (!dir) return;
+      s.update({ autoBackupDir: dir, autoBackup: s.autoBackup === 'off' ? 'weekly' : s.autoBackup });
+      toast('Папка для автокопий выбрана', 'success');
+    } catch (e) {
+      toast(`Не удалось выбрать папку: ${errText(e)}`, 'error');
+    }
+  };
+
+  const backupNow = async () => {
+    try {
+      const path = await writeAutoBackup(s.autoBackupDir);
+      toast(`Копия сохранена: ${path}`, 'success');
+    } catch (e) {
+      toast(`Не удалось сохранить копию: ${errText(e)}`, 'error');
+    }
+  };
+
+  const lastBackup = s.lastBackupAt ? ` Последняя копия: ${new Date(s.lastBackupAt).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' })}.` : '';
+  const autoDescription = IS_ANDROID
+    ? `Frost напомнит сохранить копию, например в облако или на компьютер.${lastBackup}`
+    : s.autoBackupDir
+      ? `Папка: ${s.autoBackupDir}. Хранятся ${AUTO_BACKUP_KEEP} последних копий.${lastBackup}`
+      : 'Выберите папку, например на облачном диске: копии сами попадут и на другие устройства.';
 
   const copyReport = async () => {
     const s = useSettings.getState();
@@ -530,6 +505,32 @@ export function DataGroup() {
               if (f) void restore(f);
             }}
           />
+        </span>
+      </Row>
+      <Row label="Автокопия" description={autoDescription}>
+        <span className="inline-form">
+          <select
+            className="select"
+            value={s.autoBackup}
+            aria-label="Как часто делать автокопию"
+            onChange={(e) => s.update({ autoBackup: e.target.value as BackupEvery })}
+            disabled={!isTauri || (!IS_ANDROID && !s.autoBackupDir)}
+          >
+            <option value="off">Выключена</option>
+            <option value="daily">Каждый день</option>
+            <option value="weekly">Каждую неделю</option>
+            <option value="monthly">Каждый месяц</option>
+          </select>
+          {!IS_ANDROID && (
+            <button className="btn btn--ghost btn--sm" onClick={() => void chooseFolder()} disabled={!isTauri}>
+              {s.autoBackupDir ? 'Другая папка' : 'Выбрать папку'}
+            </button>
+          )}
+          {!IS_ANDROID && s.autoBackupDir && (
+            <button className="btn btn--ghost btn--sm" onClick={() => void backupNow()}>
+              Сохранить сейчас
+            </button>
+          )}
         </span>
       </Row>
       <Row label="Журнал прослушиваний" description={records === null ? 'Считаю…' : `Записей: ${records}. Из него строятся «Итоги».`}>

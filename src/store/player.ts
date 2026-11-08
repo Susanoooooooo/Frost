@@ -3,8 +3,11 @@ import { persist } from 'zustand/middleware';
 import { engine } from '../audio/engine';
 import { bindMediaActions, setPlaybackState, setPositionState, updateMediaMetadata } from '../audio/mediaSession';
 import { api, errorText, ytSession } from '../lib/api';
+import { IS_ANDROID } from '../lib/platform';
+import { PlayFailures } from '../lib/playError';
 import { providerMeta } from '../lib/providers';
-import { shuffled } from '../lib/format';
+import { shuffled, shuffledAvoiding } from '../lib/format';
+import { readResume, resumeStart } from '../lib/resume';
 import type { RepeatMode, ResolvedStream, SourceProvider, Track } from '../lib/types';
 import { trackKey } from '../lib/types';
 import { useLibrary } from './library';
@@ -61,12 +64,15 @@ interface PlayerState {
   jumpToQueue: (index: number) => void;
   jumpToUpNext: (index: number) => void;
   startRadio: (seed: Track) => Promise<void>;
+  /** Ещё раз запустить текущий трек после ошибок (кнопка «Повторить»). */
+  retry: () => void;
 }
 
 let loadSeq = 0;
 /** Сколько шагов восстановления уже потрачено на текущий трек (см. `recover`). */
 const recovery = { key: '', stage: 0 };
-let errorStreak = 0;
+/** Ошибки подряд: повтор, переход к следующему или остановка (см. `handleError`). */
+const failures = new PlayFailures();
 
 /** Заранее найденный поток следующего трека (для плавного перехода и короткой паузы между треками). */
 interface Prepared {
@@ -85,6 +91,10 @@ interface LoadOptions {
   pre?: Prepared;
   /** Длительность плавного перехода, секунды. */
   fade?: number;
+  /** С какой секунды начать (повтор после обрыва). */
+  startAt?: number;
+  /** Повтор того же запуска после ошибки: не считать новым прослушиванием. */
+  resume?: boolean;
 }
 
 async function loadTrack(track: Track, autoplay: boolean, opts: LoadOptions = {}) {
@@ -98,7 +108,7 @@ async function loadTrack(track: Track, autoplay: boolean, opts: LoadOptions = {}
     isPreview: track.previewOnly,
     via: null,
     duration: track.duration || 0,
-    playId: usePlayer.getState().playId + 1,
+    playId: usePlayer.getState().playId + (opts.resume ? 0 : 1),
   });
   updateMediaMetadata(track);
   try {
@@ -110,23 +120,24 @@ async function loadTrack(track: Track, autoplay: boolean, opts: LoadOptions = {}
       }));
     if (seq !== loadSeq) return;
     if (opts.fade) await engine.crossfadeTo(stream, opts.fade);
-    else await engine.load(stream, autoplay);
+    else await engine.load(stream, autoplay, opts.startAt ?? 0);
     if (seq !== loadSeq) return;
     usePlayer.setState({ loaded: true, isPreview: stream.preview, via, isLoading: autoplay });
-    if (autoplay) useLibrary.getState().addHistory(track);
+    if (autoplay && !opts.resume) useLibrary.getState().addHistory(track);
   } catch (e) {
     if (seq !== loadSeq) return;
     usePlayer.setState({ isLoading: false, isPlaying: false });
-    handleError(errorText(e));
+    handleError(errorText(e), opts.startAt ?? 0);
   }
 }
 
-/** После ошибки пробуем следующий трек, но не больше трёх раз подряд. */
 /**
  * Восстановление после обрыва потока, прежде чем сдаться и перейти к следующему треку.
- * 1. YouTube: тот же трек через yt-dlp с той же секунды. Потоки RustyPipe без PO-токена
- *    YouTube обрывает через секунду-две; при второй неудаче ставим Deno и пробуем снова.
- * 2. Умная подмена: тот же трек из другого источника.
+ * 1. Свежий поток того же трека с той же секунды: ссылки SoundCloud и YouTube живут
+ *    ограниченное время. На Android это единственный способ для YouTube (yt-dlp там нет).
+ * 2. YouTube на компьютере: тот же трек через yt-dlp с той же секунды. Потоки RustyPipe без
+ *    PO-токена YouTube обрывает через секунду-две; при второй неудаче ставим Deno и пробуем снова.
+ * 3. Умная подмена: тот же трек из другого источника.
  * Возвращает true, если воспроизведение удалось спасти (или пользователь уже включил другое).
  */
 async function recover(): Promise<boolean> {
@@ -142,7 +153,24 @@ async function recover(): Promise<boolean> {
   const at = engine.currentTime || 0;
   const playing = via ?? track;
 
-  if (playing.provider === 'youtube' && recovery.stage < 2) {
+  const fresh = playing.provider === 'soundcloud' || (IS_ANDROID && playing.provider === 'youtube');
+  if (fresh && recovery.stage < 1) {
+    recovery.stage = 1;
+    try {
+      usePlayer.setState({ isLoading: true });
+      const stream = await api.resolveStream(playing.provider, playing.id);
+      if (stale()) return true;
+      await engine.load(stream, true, at);
+      if (stale()) return true;
+      usePlayer.setState({ loaded: true, isPreview: stream.preview, isLoading: false });
+      return true;
+    } catch (e) {
+      console.warn('Свежий поток после обрыва не помог', e);
+      if (stale()) return true;
+    }
+  }
+
+  if (playing.provider === 'youtube' && !IS_ANDROID && recovery.stage < 2) {
     const firstTry = recovery.stage === 0;
     recovery.stage = firstTry ? 1 : 2;
     try {
@@ -194,12 +222,36 @@ async function recover(): Promise<boolean> {
 }
 
 /** Следующий трек без побочных эффектов: для подготовки перехода. Радио сюда не входит. */
+/**
+ * Следующий круг при «повторять всё» с перемешиванием. Перемешиваем заранее и один раз на трек,
+ * чтобы предзагрузка, плавный переход и next() взяли один и тот же порядок. Раньше здесь
+ * возвращался null, и на стыке кругов не было ни предзагрузки, ни плавного перехода.
+ */
+let nextRound: { seq: number; source: Track[]; queue: Track[] } | null = null;
+
+function shuffledRound(s: PlayerState): Track[] {
+  if (nextRound && nextRound.seq === loadSeq && nextRound.source === s.original) return nextRound.queue;
+  const playing = s.current ? trackKey(s.current) : '';
+  const queue = shuffledAvoiding(s.original, (t) => trackKey(t) === playing);
+  nextRound = { seq: loadSeq, source: s.original, queue };
+  return queue;
+}
+
+/** Очередь нового круга при «повторять всё»: в перемешанном режиме новый порядок. */
+function repeatRound(s: PlayerState): Track[] {
+  return s.shuffle && s.original.length ? shuffledRound(s) : s.queue;
+}
+
 function peekNext(s: PlayerState): { track: Track; patch: Partial<PlayerState> } | null {
   if (s.repeat === 'one') return null;
   if (s.upNext.length) return { track: s.upNext[0], patch: { upNext: s.upNext.slice(1) } };
   const i = s.index + 1;
   if (i < s.queue.length) return { track: s.queue[i], patch: { index: i } };
-  if (s.repeat === 'all' && s.queue.length && !s.shuffle) return { track: s.queue[0], patch: { index: 0 } };
+  if (s.repeat === 'all' && s.queue.length) {
+    const queue = repeatRound(s);
+    if (!queue.length) return null;
+    return { track: queue[0], patch: s.shuffle ? { queue, index: 0 } : { index: 0 } };
+  }
   return null;
 }
 
@@ -257,14 +309,36 @@ function transitionTick() {
   void loadTrack(pick.track, true, { pre, fade: Math.max(1, Math.min(fade, left)) });
 }
 
-function handleError(message: string) {
-  errorStreak += 1;
-  toast(`Не удалось воспроизвести: ${message}`, 'error');
-  if (errorStreak < 3) {
-    window.setTimeout(() => void usePlayer.getState().next(false), 1200);
-  } else {
-    errorStreak = 0;
+/**
+ * Ошибка, которую не удалось исправить на месте. Сбой сети или устаревшая ссылка: тот же трек
+ * ещё раз через 1,5 с (с той же секунды). Иначе понятная причина и следующий трек. После трёх
+ * треков подряд плеер останавливается и предлагает «Повторить».
+ */
+function handleError(message: string, at = 0) {
+  const track = usePlayer.getState().current;
+  if (!track) return;
+  const seq = loadSeq;
+  const decision = failures.decide(trackKey(track), track.title, message);
+  console.warn('Ошибка воспроизведения:', message, '→', decision.action);
+  if (decision.action === 'retry') {
+    usePlayer.setState({ isLoading: true });
+    window.setTimeout(() => {
+      // Пользователь уже включил другое
+      if (seq !== loadSeq) return;
+      void loadTrack(track, true, { startAt: at > 1 ? at : 0, resume: true });
+    }, decision.delay);
+    return;
   }
+  usePlayer.setState({ isPlaying: false, isLoading: false });
+  setPlaybackState(false);
+  if (decision.action === 'skip') {
+    toast(decision.message, 'error');
+    window.setTimeout(() => {
+      if (seq === loadSeq) void usePlayer.getState().next(false);
+    }, decision.delay);
+    return;
+  }
+  toast(decision.message, 'error', { label: 'Повторить', onClick: () => usePlayer.getState().retry() });
 }
 
 /** Для трека с компьютера радио строится от того же трека в сети (YouTube Music или SoundCloud). */
@@ -327,7 +401,7 @@ export const usePlayer = create<PlayerState>()(
         const { shuffle } = get();
         const queue = shuffle ? [list[idx], ...shuffled(list.filter((_, i) => i !== idx))] : list;
         const index = shuffle ? 0 : idx;
-        errorStreak = 0;
+        failures.reset();
         set({ original: list, queue, index, source });
         void loadTrack(queue[index], true);
       },
@@ -345,7 +419,11 @@ export const usePlayer = create<PlayerState>()(
         const s = get();
         if (!s.current || s.isLoading) return;
         if (!s.loaded) {
-          void loadTrack(s.current, true);
+          // Первый запуск после старта Frost: продолжаем с того места, где остановились
+          const startAt = useSettings.getState().resumePlayback
+            ? resumeStart(readResume(), trackKey(s.current), s.current.duration)
+            : 0;
+          void loadTrack(s.current, true, { startAt });
           return;
         }
         void engine.play();
@@ -379,9 +457,9 @@ export const usePlayer = create<PlayerState>()(
           return;
         }
         if (s.repeat === 'all' && s.queue.length) {
-          const queue = s.shuffle ? shuffled(s.original) : s.queue;
+          const queue = repeatRound(s);
           set({ queue, index: 0 });
-          void loadTrack(queue[0], true);
+          void loadTrack(queue[0], true, { pre: takePrepared(queue[0]) });
           return;
         }
         if (useSettings.getState().autoplayRadio && s.current) {
@@ -512,6 +590,13 @@ export const usePlayer = create<PlayerState>()(
         const related = await fetchRadio(seed, []);
         get().playList([seed, ...related], 0, `Радио: ${seed.title}`);
       },
+
+      retry: () => {
+        const { current } = get();
+        if (!current) return;
+        failures.reset();
+        void loadTrack(current, true);
+      },
     }),
     {
       name: 'frost.player',
@@ -535,7 +620,7 @@ export const usePlayer = create<PlayerState>()(
 // ─── Связь движка со стором ───
 engine.events = {
   onPlaying: () => {
-    errorStreak = 0;
+    failures.playing();
     usePlayer.setState({ isPlaying: true, isLoading: false });
     setPlaybackState(true);
   },
@@ -558,10 +643,11 @@ engine.events = {
   },
   onError: (message) => {
     const seq = loadSeq;
+    const at = engine.currentTime || 0;
     void recover().then((saved) => {
       if (saved || seq !== loadSeq) return;
       usePlayer.setState({ isPlaying: false, isLoading: false });
-      handleError(message);
+      handleError(message, at);
     });
   },
 };

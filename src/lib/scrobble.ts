@@ -35,6 +35,19 @@ export function scrobbleThreshold(duration: number): number | null {
   return Math.min(240, duration / 2);
 }
 
+/**
+ * Сколько секунд реально прослушано между двумя тиками счётчика.
+ * В фоне (Android, свёрнутое окно) таймер может срабатывать реже раза в секунду,
+ * поэтому основа: сдвиг позиции трека, но не больше прошедшего времени
+ * (перемотка вперёд не считается прослушиванием). Если позиция не сдвинулась
+ * (поток без позиции, повтор с начала), считаем по часам, но не больше 2,5 с за тик.
+ */
+export function listenedDelta(moved: number, wall: number): number {
+  const elapsed = Number.isFinite(wall) ? Math.max(0, wall) : 0;
+  if (Number.isFinite(moved) && moved > 0) return Math.min(moved, elapsed + 0.25);
+  return Math.min(2.5, elapsed);
+}
+
 interface NetResponse {
   status: number;
   body: string;
